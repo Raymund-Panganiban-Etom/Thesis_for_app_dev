@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Edge AI Storage Portal</title>
+<meta name="theme-color" content="#d9690f">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+try {
+  document.documentElement.dataset.theme =
+    localStorage.getItem("theme") ||
+    (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+} catch (e) { document.documentElement.dataset.theme = "light"; }
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="welcome" role="dialog" aria-label="Welcome">
+  <div class="wl">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 19C5 9 11 4 20 4c0 9-5 15-15 15z"/><path d="M5 19L14 10"/>
+    </svg>
+  </div>
+  <p class="w3">Edge AI Storage Portal</p>
+  <p class="cap w1">Design and Development of an IoT-Enabled Edge AI Post-Harvest Storage System for Automated Environmental Monitoring and Control of Harvested Crops in Sitio Inigan, Barangay San Rafael, Rodriguez, Rizal.</p>
+  <h1 id="wGreet">Welcome!</h1>
+  <p class="w4">Monitor the ethylene, temperature and humidity of your stored crops across two containers, with automatic ventilation.</p>
+  <button class="wg" id="wGo">Get started</button>
+</div>
+
+<header class="top">
+  <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 19C5 9 11 4 20 4c0 9-5 15-15 15z"/><path d="M5 19L14 10"/>
+    </svg>
+  </div>
+  <div><h1>Edge AI Storage Portal</h1><p>Design and Development of an IoT-Enabled Edge AI Post-Harvest Storage System for Automated Environmental Monitoring and Control of Harvested Crops in Sitio Inigan, Barangay San Rafael, Rodriguez, Rizal.</p></div>
+  <button class="theme" id="themeBtn" aria-label="Switch to dark mode" title="Switch theme">
+    <svg class="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+    <svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+  </button>
+</header>
+
+<main class="wrap">
+  <section class="stat" aria-label="System status">
+    <div class="a st-off" id="devA" role="button" tabindex="0">
+      <span class="dot"><i></i></span>
+      <div><b>ESP32-S3</b><span class="s" id="devS">Not connected</span></div>
+      <em class="cp" id="devB">Connect</em>
+    </div>
+    <p class="status-line" id="statusLine" role="status" aria-live="polite">
+      Idle — tap Connect to scan for ESP32-Storage
+    </p>
+  </section>
+
+  <!-- VIEW 1: crop selection -->
+  <div id="first">
+    <section class="card" aria-label="Storage profile">
+      <div class="head">
+        <div><p class="cap">Storage profile</p><h2>Crop-specific care, at a glance</h2></div>
+        <button class="chk" id="ok" aria-label="Confirm crop and show live readings">Confirm</button>
+      </div>
+      <p class="d">Select a crop to view its photo and active storage targets.</p>
+      <div class="chips" id="chips"></div>
+      <div class="hero" id="hero">
+        <button class="nv" style="left:20px" id="prev" aria-label="Previous crop">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <button class="nv" style="right:20px" id="next" aria-label="Next crop">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <h3 id="hName"></h3><p id="hDesc"></p>
+        <div class="dots" id="dots"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- VIEW 2: live readings -->
+  <div id="second" hidden>
+    <button class="back" id="back" aria-label="Back to crop selection">Back</button>
+
+    <!-- Container 1 -->
+    <section class="card" aria-label="Live readings Container 1">
+      <p class="cap" style="color:var(--ok);">Container 1</p>
+      <h2>Storage conditions</h2>
+      <p class="d">Targets: <span id="tgt1"></span></p>
+      
+      <div class="rd"><strong id="gV1">0</strong><span>ppm</span></div>
+      <svg class="ch" viewBox="0 0 300 160" role="img" aria-label="Ethylene level Container 1">
+        <g>
+          <line class="gl" x1="34" x2="292" y1="138" y2="138"/><line class="gl" x1="34" x2="292" y1="106" y2="106"/>
+          <line class="gl" x1="34" x2="292" y1="74" y2="74"/><line class="gl" x1="34" x2="292" y1="42" y2="42"/>
+          <line class="gl" x1="34" x2="292" y1="10" y2="10"/>
+          <text x="28" y="141" text-anchor="end">0</text><text x="28" y="109" text-anchor="end">100</text>
+          <text x="28" y="77" text-anchor="end">200</text><text x="28" y="45" text-anchor="end">300</text>
+          <text x="28" y="13" text-anchor="end">400</text>
+          <text x="34" y="153">60 s ago</text><text x="292" y="153" text-anchor="end">now · ppm</text>
+        </g>
+        <path id="area1" d=""/>
+        <line id="thr1" x1="34" x2="292" y1="74" y2="74"/>
+        <text id="thrT1" x="290" y="70" text-anchor="end"></text>
+        <path id="ln1" d=""/>
+        <circle id="pt1" r="4.5" cx="292" cy="138"/>
+      </svg>
+      <p class="lbl">Ethylene gas (ppm)</p><span class="sts" id="gS1">Ethylene level normal</span>
+
+      <div class="two">
+        <div>
+          <div class="gauge">
+            <svg viewBox="0 0 120 120"><circle class="t" cx="60" cy="60" r="52" stroke-width="10"/><circle class="v" id="tR1" cx="60" cy="60" r="52" stroke-width="10" stroke="#e0a21b"/></svg>
+            <div class="val"><strong id="tV1">--</strong><small>°C</small></div>
+          </div>
+          <p class="lbl">Temperature</p>
+        </div>
+        <div>
+          <div class="gauge">
+            <svg viewBox="0 0 120 120"><circle class="t" cx="60" cy="60" r="52" stroke-width="10"/><circle class="v" id="hR1" cx="60" cy="60" r="52" stroke-width="10" stroke="#2e8b57"/></svg>
+            <div class="val"><strong id="hV1">--</strong><small>%</small></div>
+          </div>
+          <p class="lbl">Humidity</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Container 2 -->
+    <section class="card" aria-label="Live readings Container 2">
+      <p class="cap" style="color:var(--warn);">Container 2</p>
+      <h2>Storage conditions</h2>
+      <p class="d">Targets: <span id="tgt2"></span></p>
+      
+      <div class="rd"><strong id="gV2">0</strong><span>ppm</span></div>
+      <svg class="ch" viewBox="0 0 300 160" role="img" aria-label="Ethylene level Container 2">
+        <g>
+          <line class="gl" x1="34" x2="292" y1="138" y2="138"/><line class="gl" x1="34" x2="292" y1="106" y2="106"/>
+          <line class="gl" x1="34" x2="292" y1="74" y2="74"/><line class="gl" x1="34" x2="292" y1="42" y2="42"/>
+          <line class="gl" x1="34" x2="292" y1="10" y2="10"/>
+          <text x="28" y="141" text-anchor="end">0</text><text x="28" y="109" text-anchor="end">100</text>
+          <text x="28" y="77" text-anchor="end">200</text><text x="28" y="45" text-anchor="end">300</text>
+          <text x="28" y="13" text-anchor="end">400</text>
+          <text x="34" y="153">60 s ago</text><text x="292" y="153" text-anchor="end">now · ppm</text>
+        </g>
+        <path id="area2" d=""/>
+        <line id="thr2" x1="34" x2="292" y1="74" y2="74"/>
+        <text id="thrT2" x="290" y="70" text-anchor="end"></text>
+        <path id="ln2" d=""/>
+        <circle id="pt2" r="4.5" cx="292" cy="138"/>
+      </svg>
+      <p class="lbl">Ethylene gas (ppm)</p><span class="sts" id="gS2">Ethylene level normal</span>
+
+      <div class="two">
+        <div>
+          <div class="gauge">
+            <svg viewBox="0 0 120 120"><circle class="t" cx="60" cy="60" r="52" stroke-width="10"/><circle class="v" id="tR2" cx="60" cy="60" r="52" stroke-width="10" stroke="#e0a21b"/></svg>
+            <div class="val"><strong id="tV2">--</strong><small>°C</small></div>
+          </div>
+          <p class="lbl">Temperature</p>
+        </div>
+        <div>
+          <div class="gauge">
+            <svg viewBox="0 0 120 120"><circle class="t" cx="60" cy="60" r="52" stroke-width="10"/><circle class="v" id="hR2" cx="60" cy="60" r="52" stroke-width="10" stroke="#2e8b57"/></svg>
+            <div class="val"><strong id="hV2">--</strong><small>%</small></div>
+          </div>
+          <p class="lbl">Humidity</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="modes" role="group" aria-label="Control mode">
+      <div class="m auto" id="aB">
+        <span class="ah">
+          <i class="ic"><svg viewBox="0 0 24 24"><path d="M5 19C5 9 11 4 20 4c0 9-5 15-15 15z"/><path d="M5 19L14 10"/></svg></i>
+          <em class="np" id="aP">Normal</em>
+        </span>
+        <small class="k">System inference state · automatic</small>
+        <span id="aT">Normal microclimate maintained</span>
+        <small class="ad" id="aD">All environmental inputs remain within the storage profile.</small>
+        <span class="mc"><small>Model confidence</small><small id="aC">98.2%</small></span>
+        <span class="bar"><i id="aF" style="width:98.2%"></i></span>
+      </div>
+
+      <div class="stat sync-card">
+        <button class="sy" id="syncB" aria-label="Sync now">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round">
+            <path d="M4 12a8 8 0 0114-5M20 12a8 8 0 01-14 5"/>
+            <path d="M18 3v4h-4M6 21v-4h4"/>
+          </svg>
+          <section><b>Last sync</b><br><span id="sync">--:--:--</span><br><span id="ago">Tap to sync now</span></section>
+        </button>
+      </div>
+    </div>
+
+    <section class="card" aria-label="Environmental event log">
+      <div class="head">
+        <div>
+          <p class="cap">Environmental event log</p>
+          <h2>Latest system activity</h2>
+          <p class="d">Recent triggers and automated relay actions.</p>
+        </div>
+        <button class="vb" id="vb" aria-expanded="false">View all<br>events</button>
+      </div>
+      <div id="log" style="margin-top:20px;border-top:1.5px solid var(--line)"></div>
+    </section>
+  </div>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
