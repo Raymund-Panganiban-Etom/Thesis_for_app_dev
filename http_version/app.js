@@ -25,11 +25,11 @@ applyTheme(root.dataset.theme || 'light', false);
 
 /* ---------- Crops ---------- */
 const P = [
-  { n:'Calamansi', d:'Citrus held cool to keep rind firm and fresh.', t:[8,10], h:[85,90], e:330, img:'calamansi.jpg', bg:'radial-gradient(circle at 30% 40%,#f2c14e,#7a8f1e 55%,#1b3d22)' },
-  { n:'Corn', d:'Sweet corn chilled fast to lock in sugars.', t:[0,2], h:[95,98], e:330, img:'corn.jpg', bg:'radial-gradient(circle at 70% 30%,#f0d56a,#8a9a2e 55%,#1b3d22)' },
-  { n:'Pomelo', d:'Large citrus stored with gentle airflow.', t:[7,10], h:[85,90], e:330, img:'pomelo.jpg', bg:'radial-gradient(circle at 40% 60%,#d9e08a,#5e8f3a 55%,#16351f)' },
-  { n:'String Beans', d:'Tender pods kept humid and ethylene-free.', t:[4,7], h:[90,95], e:330, img:'string-beans.jpg', bg:'radial-gradient(circle at 60% 40%,#8fcf6a,#2e7a3c 55%,#0f2c1a)' },
-  { n:'Cardaba Banana', d:'Green fruit monitored for controlled, even ripening.', t:[13,15], h:[90,95], e:330, img:'banana.jpg', bg:'linear-gradient(160deg,#c9d95a,#2e7a3c 60%,#0f2c1a)' }
+  { n:'Calamansi', d:'Citrus held cool to keep rind firm and fresh.', t:[8,10], h:[85,90], e:330, img:'images/calamansi.jpg', bg:'radial-gradient(circle at 30% 40%,#f2c14e,#7a8f1e 55%,#1b3d22)' },
+  { n:'Corn', d:'Sweet corn chilled fast to lock in sugars.', t:[0,2], h:[95,98], e:330, img:'images/corn.jpg', bg:'radial-gradient(circle at 70% 30%,#f0d56a,#8a9a2e 55%,#1b3d22)' },
+  { n:'Pomelo', d:'Large citrus stored with gentle airflow.', t:[7,10], h:[85,90], e:330, img:'images/pomelo.jpg', bg:'radial-gradient(circle at 40% 60%,#d9e08a,#5e8f3a 55%,#16351f)' },
+  { n:'String Beans', d:'Tender pods kept humid and ethylene-free.', t:[4,7], h:[90,95], e:330, img:'images/string-beans.jpg', bg:'radial-gradient(circle at 60% 40%,#8fcf6a,#2e7a3c 55%,#0f2c1a)' },
+  { n:'Cardaba Banana', d:'Green fruit monitored for controlled, even ripening.', t:[13,15], h:[90,95], e:330, img:'images/banana.jpg', bg:'linear-gradient(160deg,#c9d95a,#2e7a3c 60%,#0f2c1a)' }
 ];
 
 let cur = 0;
@@ -219,39 +219,56 @@ function updateUI(d) {
     st2.style.color = "var(--mute)";
   }
 
-  // Container 1
-  $('tV1').textContent = d.t1.toFixed(1);
-  $('hV1').textContent = Math.round(d.h1);
-  ring('tR1', d.t1 / 50 * 100);
-  ring('hR1', d.h1);
-  $('gV1').textContent = Math.round(d.e1);
-  
-  const col1 = d.e1 >= P[cur].e * 1.4 ? 'var(--bad)' : d.e1 >= P[cur].e ? 'var(--warn)' : 'var(--ok)';
-  drawChart(col1, P[cur].e, hist1, '1');
-  $('gS1').style.color = col1;
-  $('gS1').textContent = d.e1 >= P[cur].e * 1.4 ? 'High ethylene' : d.e1 >= P[cur].e ? 'Ethylene rising' : 'Normal';
+  // Container 1 Data (Check for null)
+  if (d.t1 === null) { $('tV1').textContent = '--'; ring('tR1', 0); } 
+  else { $('tV1').textContent = d.t1.toFixed(1); ring('tR1', d.t1 / 50 * 100); }
 
-  // Container 2
-  $('tV2').textContent = d.t2.toFixed(1);
-  $('hV2').textContent = Math.round(d.h2);
-  ring('tR2', d.t2 / 50 * 100);
-  ring('hR2', d.h2);
-  $('gV2').textContent = Math.round(d.e2);
-  
-  const col2 = d.e2 >= P[cur].e * 1.4 ? 'var(--bad)' : d.e2 >= P[cur].e ? 'var(--warn)' : 'var(--ok)';
-  drawChart(col2, P[cur].e, hist2, '2');
-  $('gS2').style.color = col2;
-  $('gS2').textContent = d.e2 >= P[cur].e * 1.4 ? 'High ethylene' : d.e2 >= P[cur].e ? 'Ethylene rising' : 'Normal';
+  if (d.h1 === null) { $('hV1').textContent = '--'; ring('hR1', 0); } 
+  else { $('hV1').textContent = Math.round(d.h1); ring('hR1', d.h1); }
+
+  if (d.e1 === null) { 
+    $('gV1').textContent = '--'; 
+    drawChart('var(--mute)', P[cur].e, hist1, '1'); 
+    $('gS1').textContent = 'No Sensor'; 
+    $('gS1').style.color = 'var(--mute)'; 
+  } else {
+    $('gV1').textContent = Math.round(d.e1);
+    const col1 = d.e1 >= P[cur].e * 1.4 ? 'var(--bad)' : d.e1 >= P[cur].e ? 'var(--warn)' : 'var(--ok)';
+    drawChart(col1, P[cur].e, hist1, '1');
+    $('gS1').style.color = col1;
+    $('gS1').textContent = d.e1 >= P[cur].e * 1.4 ? 'High ethylene' : d.e1 >= P[cur].e ? 'Ethylene rising' : 'Normal';
+  }
+
+  // Container 2 Data (Check for null)
+  if (d.t2 === null) { $('tV2').textContent = '--'; ring('tR2', 0); } 
+  else { $('tV2').textContent = d.t2.toFixed(1); ring('tR2', d.t2 / 50 * 100); }
+
+  if (d.h2 === null) { $('hV2').textContent = '--'; ring('hR2', 0); } 
+  else { $('hV2').textContent = Math.round(d.h2); ring('hR2', d.h2); }
+
+  if (d.e2 === null) { 
+    $('gV2').textContent = '--'; 
+    drawChart('var(--mute)', P[cur].e, hist2, '2'); 
+    $('gS2').textContent = 'No Sensor'; 
+    $('gS2').style.color = 'var(--mute)'; 
+  } else {
+    $('gV2').textContent = Math.round(d.e2);
+    const col2 = d.e2 >= P[cur].e * 1.4 ? 'var(--bad)' : d.e2 >= P[cur].e ? 'var(--warn)' : 'var(--ok)';
+    drawChart(col2, P[cur].e, hist2, '2');
+    $('gS2').style.color = col2;
+    $('gS2').textContent = d.e2 >= P[cur].e * 1.4 ? 'High ethylene' : d.e2 >= P[cur].e ? 'Ethylene rising' : 'Normal';
+  }
 }
 
 function tick() {
   const p = P[cur];
   
-  // If disconnected, run simulation fallback (keeps the UI alive)
+  // If disconnected, run simulation fallback
   if (conn !== 'on' || Date.now() - lastFetchTime > 15000) {
     g1 = Math.max(0, Math.min(500, g1 + (Math.random() - .46) * 35));
     g2 = Math.max(0, Math.min(500, g2 + (Math.random() - .46) * 35));
     
+    // Simulate data
     const sim = {
       t1: 28.0 + Math.random(), h1: 85.0 + Math.random(), e1: g1, s1: 0,
       t2: 28.5 + Math.random(), h2: 84.0 + Math.random(), e2: g2, s2: 0
