@@ -51,7 +51,7 @@ try {
       <em class="cp" id="devB">Connect</em>
     </div>
     <p class="status-line" id="statusLine" role="status" aria-live="polite">
-      Idle — tap Connect to scan for ESP32-Storage
+      Idle — tap Connect to start Wi-Fi polling
     </p>
   </section>
 
@@ -83,7 +83,10 @@ try {
 
     <!-- Container 1 -->
     <section class="card" aria-label="Live readings Container 1">
-      <p class="cap" style="color:var(--ok);">Container 1</p>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <p class="cap" style="color:var(--ok);">Container 1</p>
+        <span id="sm4Status1" class="sm4-status">● SM4: Offline</span>
+      </div>
       <h2>Storage conditions</h2>
       <p class="d">Targets: <span id="tgt1"></span></p>
       
@@ -126,7 +129,10 @@ try {
 
     <!-- Container 2 -->
     <section class="card" aria-label="Live readings Container 2">
-      <p class="cap" style="color:var(--warn);">Container 2</p>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <p class="cap" style="color:var(--warn);">Container 2</p>
+        <span id="sm4Status2" class="sm4-status">● SM4: Offline</span>
+      </div>
       <h2>Storage conditions</h2>
       <p class="d">Targets: <span id="tgt2"></span></p>
       

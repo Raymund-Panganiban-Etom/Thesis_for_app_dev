@@ -262,3 +262,13 @@ body:has(#first[hidden]) .cp{display:none}
   #second > .modes { grid-column: 1 / -1; grid-row: auto; margin-bottom: 24px; }
   #second > .card[aria-label="Environmental event log"] { grid-column: 1 / -1; grid-row: auto; }
 }
+
+/* Add this to the bottom of your existing style.css */
+
+.sm4-status {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--mute);
+  transition: color 0.3s;
+}

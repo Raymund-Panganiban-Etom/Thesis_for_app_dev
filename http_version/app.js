@@ -145,8 +145,8 @@ async function fetchData() {
     const data = await res.json();
     
     live = {
-      t1: data.t1, h1: data.h1, e1: data.e1,
-      t2: data.t2, h2: data.h2, e2: data.e2,
+      t1: data.t1, h1: data.h1, e1: data.e1, s1: data.s1,
+      t2: data.t2, h2: data.h2, e2: data.e2, s2: data.s2,
       at: Date.now()
     };
     lastFetchTime = Date.now();
@@ -193,6 +193,32 @@ $('devA').onclick = () => {
 
 /* ---------- Core UI Update Logic ---------- */
 function updateUI(d) {
+  // Update SM4 Status indicators
+  const st1 = $('sm4Status1');
+  const st2 = $('sm4Status2');
+
+  if (conn === 'on' && d.s1 === 1) {
+    st1.textContent = "● SM4: Active";
+    st1.style.color = "var(--ok)"; // Green
+  } else if (conn === 'on' && d.s1 === 0) {
+    st1.textContent = "● SM4: No Data";
+    st1.style.color = "var(--bad)"; // Red
+  } else {
+    st1.textContent = "● SM4: Offline";
+    st1.style.color = "var(--mute)"; // Gray
+  }
+
+  if (conn === 'on' && d.s2 === 1) {
+    st2.textContent = "● SM4: Active";
+    st2.style.color = "var(--ok)";
+  } else if (conn === 'on' && d.s2 === 0) {
+    st2.textContent = "● SM4: No Data";
+    st2.style.color = "var(--bad)";
+  } else {
+    st2.textContent = "● SM4: Offline";
+    st2.style.color = "var(--mute)";
+  }
+
   // Container 1
   $('tV1').textContent = d.t1.toFixed(1);
   $('hV1').textContent = Math.round(d.h1);
@@ -227,8 +253,8 @@ function tick() {
     g2 = Math.max(0, Math.min(500, g2 + (Math.random() - .46) * 35));
     
     const sim = {
-      t1: 28.0 + Math.random(), h1: 85.0 + Math.random(), e1: g1,
-      t2: 28.5 + Math.random(), h2: 84.0 + Math.random(), e2: g2
+      t1: 28.0 + Math.random(), h1: 85.0 + Math.random(), e1: g1, s1: 0,
+      t2: 28.5 + Math.random(), h2: 84.0 + Math.random(), e2: g2, s2: 0
     };
     updateUI(sim);
   }
