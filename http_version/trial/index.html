@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ESP32-S3 · OV5640 Live View</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <h1>ESP32-S3 · OV5640 Live View</h1>
+    <div class="ip-group">
+      <input id="ipInput" type="text" placeholder="192.168.1.100" spellcheck="false" autocomplete="off" />
+      <button id="connectBtn" class="btn primary">Connect</button>
+      <button id="disconnectBtn" class="btn" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="viewer" id="viewer">
+      <img id="stream" alt="Live stream" />
+      <div id="placeholder" class="placeholder">
+        <p>Enter the ESP32 IP (from Serial Monitor) and click <strong>Connect</strong>.</p>
+        <p class="hint">Stream URL: <code id="streamUrlHint">http://&lt;ip&gt;:81/stream</code></p>
+      </div>
+      <div id="statusBadge" class="badge badge-idle">Idle</div>
+    </section>
+
+    <section class="actions">
+      <button id="snapshotBtn" class="btn" disabled>Snapshot</button>
+      <button id="fullscreenBtn" class="btn" disabled>Fullscreen</button>
+      <button id="togglePanelBtn" class="btn">Hide Controls</button>
+    </section>
+
+    <aside id="controlPanel" class="control-panel">
+      <h2>Camera Controls</h2>
+
+      <div class="group">
+        <label class="field">
+          <span>Resolution</span>
+          <select id="framesize">
+            <option value="5">QVGA 320×240</option>
+            <option value="8">VGA 640×480</option>
+            <option value="9">SVGA 800×600</option>
+            <option value="10">XGA 1024×768</option>
+            <option value="11">HD 1280×720</option>
+            <option value="12">SXGA 1280×1024</option>
+            <option value="13">UXGA 1600×1200</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Quality <b id="qualityVal">12</b></span>
+          <input id="quality" type="range" min="0" max="63" step="1" value="12" />
+        </label>
+      </div>
+
+      <div class="group">
+        <label class="field">
+          <span>Brightness <b id="brightnessVal">0</b></span>
+          <input id="brightness" type="range" min="-2" max="2" step="1" value="0" />
+        </label>
+        <label class="field">
+          <span>Contrast <b id="contrastVal">0</b></span>
+          <input id="contrast" type="range" min="-2" max="2" step="1" value="0" />
+        </label>
+        <label class="field">
+          <span>Saturation <b id="saturationVal">0</b></span>
+          <input id="saturation" type="range" min="-2" max="2" step="1" value="0" />
+        </label>
+      </div>
+
+      <div class="group">
+        <label class="field">
+          <span>Special Effect</span>
+          <select id="special_effect">
+            <option value="0">None</option>
+            <option value="1">Negative</option>
+            <option value="2">Grayscale</option>
+            <option value="3">Reddish</option>
+            <option value="4">Greenish</option>
+            <option value="5">Bluish</option>
+            <option value="6">Sepia</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>White Balance</span>
+          <select id="wb_mode">
+            <option value="0">Auto</option>
+            <option value="1">Sunny</option>
+            <option value="2">Cloudy</option>
+            <option value="3">Office</option>
+            <option value="4">Home</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Gain Ceiling</span>
+          <select id="gainceiling">
+            <option value="0">2×</option>
+            <option value="1">4×</option>
+            <option value="2">8×</option>
+            <option value="3">16×</option>
+            <option value="4">32×</option>
+            <option value="5">64×</option>
+            <option value="6">128×</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="group toggles">
+        <label class="toggle"><input id="hmirror"    type="checkbox" /> <span>H‑Mirror</span></label>
+        <label class="toggle"><input id="vflip"      type="checkbox" checked /> <span>V‑Flip</span></label>
+        <label class="toggle"><input id="awb"        type="checkbox" checked /> <span>Auto WB</span></label>
+        <label class="toggle"><input id="aec"        type="checkbox" checked /> <span>Auto Exposure</span></label>
+        <label class="toggle"><input id="agc"        type="checkbox" checked /> <span>Auto Gain</span></label>
+        <label class="toggle"><input id="dcw"        type="checkbox" checked /> <span>Downsize</span></label>
+        <label class="toggle"><input id="colorbar"   type="checkbox" /> <span>Test Pattern</span></label>
+      </div>
+    </aside>
+    <!-- Add this inside your <main> tag, perhaps below the camera viewer -->
+<section class="voice-ai-section" style="margin-top: 20px; padding: 15px; background: var(--panel); border-radius: 14px;">
+    <h2>XiaoZhi AI Voice Chat</h2>
+    <p id="aiStatus" style="color: var(--muted);">Status: Disconnected</p>
+    
+    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+        <button id="startAiBtn" class="btn primary" onclick="connectVoiceAI()">🎤 Start Talking to AI</button>
+        <button id="stopAiBtn" class="btn" onclick="disconnectVoiceAI()" disabled>🛑 Stop AI</button>
+    </div>
+
+    <!-- AI Text Output Log -->
+    <div id="aiChatLog" style="height: 100px; overflow-y: auto; background: #000; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.9rem;">
+        <div style="color: gray;">AI text responses will appear here...</div>
+    </div>
+</section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
