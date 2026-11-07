@@ -25,14 +25,19 @@ applyTheme(root.dataset.theme || 'light', false);
 
 /* ---------- Config ---------- */
 const DEFAULT_HOST = '192.168.1.100';
-let espHost = (() => { try { return localStorage.getItem('espHost'); } catch (e) { return null; } })() || DEFAULT_HOST;
-const apiUrl = () => `http://${espHost}/api/data`;
+let espHost = (() => {
+  try { const v = localStorage.getItem('espHost'); if (v) return v; } catch (e) {}
+  return DEFAULT_HOST;
+})();
 
-/* ---------- Chart ---------- */
+const pingUrl = () => `http://${espHost}/ping`;
+const fansUrl = () => `http://${espHost}/api/fans`;
+
+/* ---------- Chart constants ---------- */
 const BANANA_MAX = 2.0;
-const MIXED_MAX = 0.5;
+const MIXED_MAX  = 0.5;
 const BANANA_WARN = 0.1;
-const MIXED_WARN = 0.05;
+const MIXED_WARN  = 0.05;
 const histB = Array(60).fill(0);
 const histM = Array(60).fill(0);
 
@@ -59,85 +64,78 @@ function drawEthChart(prefix, hist, max, warn) {
   $('thrT' + prefix).textContent = 'Fan trigger ' + warn.toFixed(2) + ' ppm';
 }
 
-/* ---------- Connection ---------- */
+/* ---------- Connection state ---------- */
 let conn = 'off';
-let live = null;
-let pollTimer = null;
-let lastFetchTime = 0;
+let pingTimer = null;
 
 function setStatus(state, message) {
   const line = $('statusLine');
+  if (!line) return;
   line.className = 'status-line' + (state ? ' ' + state : '');
   line.textContent = message;
 }
 
 function setConn(s, msg) {
+  const prev = conn;
   conn = s;
   $('devA').className = 'a st-' + s;
   $('devS').textContent = s === 'on' ? 'Connected via Wi-Fi' : s === 'ing' ? 'Connecting…' : 'Not connected';
   $('devB').textContent = s === 'on' ? 'Disconnect' : s === 'ing' ? 'Cancel' : 'Connect';
 
-  if (s === 'on') setStatus('connected', msg || `Connected to ESP32 (${espHost})`);
-  else if (s === 'ing') setStatus('connecting', msg || `Connecting to ${espHost}…`);
-  else setStatus('idle', msg || 'Idle — tap Connect to start polling');
+  if (s === 'on') {
+    setStatus('connected', msg || `Connected to ESP32 (${espHost})`);
+    if (prev !== 'on') logEv('ESP32 connected', 'Wi-Fi link active', 'ESP32', 'Online', 'p-on');
+  } else if (s === 'ing') {
+    setStatus('connecting', msg || `Connecting to ${espHost}…`);
+    if (prev === 'on') logEv('ESP32 disconnected', 'Retrying Wi-Fi', 'ESP32', 'Actioned', 'p-ac');
+  } else {
+    setStatus('idle', msg || 'Idle — tap Connect to start polling');
+  }
 }
 
-async function fetchData() {
-  if (conn === 'off') return;
-
+async function ping() {
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 4000);
-
+  const t = setTimeout(() => ctrl.abort(), 3000);
   try {
-    const res = await fetch(apiUrl(), { signal: ctrl.signal, cache: 'no-store' });
-    if (!res.ok) throw new Error('Bad response');
-    const data = await res.json();
-
-    live = data;
-    lastFetchTime = Date.now();
-
-    if (conn !== 'on') {
-      setConn('on', `Connected to ESP32 (${espHost})`);
-      logEv('ESP32 connected', 'Wi-Fi telemetry active', 'ESP32', 'Online', 'p-on');
-    }
-    renderLive(live);
-
+    const res = await fetch(pingUrl(), { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) throw new Error('status ' + res.status);
+    const body = await res.text();
+    if (body.trim() !== 'pong') throw new Error('unexpected body');
+    setConn('on');
   } catch (err) {
-    const wasOn = conn === 'on';
     setConn('ing', `Can't reach ${espHost} — retrying…`);
-    if (wasOn) logEv('ESP32 disconnected', 'Retrying over Wi-Fi', 'ESP32', 'Actioned', 'p-ac');
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(t);
   }
 }
 
 function startPolling() {
-  if (pollTimer) clearInterval(pollTimer);
+  if (pingTimer) clearInterval(pingTimer);
   setConn('ing', `Connecting to ${espHost} via Wi-Fi…`);
-  pollTimer = setInterval(fetchData, 1000);
-  fetchData();
+  pingTimer = setInterval(ping, 2000);
+  ping();
 }
 
 function stopPolling() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = null;
-  live = null;
+  if (pingTimer) clearInterval(pingTimer);
+  pingTimer = null;
   setConn('off', 'Disconnected');
 }
 
 $('devA').onclick = () => {
   if (conn === 'off') startPolling();
-  else if (conn === 'on' || conn === 'ing') stopPolling();
+  else stopPolling();
 };
 
 $('statusLine').addEventListener('dblclick', () => {
   const v = prompt('ESP32 IP or hostname:', espHost);
-  if (v && v.trim()) {
-    espHost = v.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    try { localStorage.setItem('espHost', espHost); } catch (e) {}
-    if (pollTimer) startPolling();
-    else setConn('off', `Address set to ${espHost} — tap Connect`);
-  }
+  if (v === null) return;
+  const trimmed = v.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  if (!trimmed) return;
+  espHost = trimmed;
+  try { localStorage.setItem('espHost', espHost); } catch (e) {}
+  if (pingTimer) startPolling();
+  else setConn('off', `Address set to ${espHost} — tap Connect`);
 });
 
 /* ---------- Rendering helpers ---------- */
@@ -171,9 +169,8 @@ function setMiniState(id, s) {
   el.className = 'mini-st ' + classes[s];
 }
 
-/* ---------- Live data rendering ---------- */
+/* ---------- Render a simulated frame ---------- */
 function renderLive(d) {
-  // Banana chamber
   const b = d.b;
   $('bE').textContent = b.e.toFixed(2);
   $('bT').textContent = b.t.toFixed(1);
@@ -184,14 +181,12 @@ function renderLive(d) {
   setFan('bF1', b.pwm);
   setFan('bF2', b.pwm);
 
-  // Mixed chamber
   const m = d.m;
   $('mE').textContent = m.e.toFixed(2);
   setChamberState('mState', m.s);
   setFan('mF3', m.pwm);
   setFan('mF4', m.pwm);
 
-  // 4 crops
   d.c.forEach(crop => {
     const t = $(crop.id + 'T');
     const h = $(crop.id + 'H');
@@ -201,13 +196,11 @@ function renderLive(d) {
     if (s) setMiniState(crop.id + 'S', crop.s);
   });
 
-  // Histories + charts
   histB.push(b.e); histB.shift();
   histM.push(m.e); histM.shift();
   drawEthChart('A', histB, BANANA_MAX, BANANA_WARN);
   drawEthChart('B', histM, MIXED_MAX, MIXED_WARN);
 
-  // AI state
   updateAI(b.s, m.s, b.e, m.e);
 }
 
@@ -248,7 +241,7 @@ function drawLog() {
 }
 $('vb').onclick = () => { showAll = !showAll; drawLog(); };
 
-/* ---------- Local simulation (disconnected mode) ---------- */
+/* ---------- Simulation ---------- */
 const wave = (base, amp, period, phase) =>
   base + amp * Math.sin(Date.now() / period * 2 * Math.PI + phase);
 
@@ -295,13 +288,34 @@ function simulateLocal() {
   };
 }
 
+/* ---------- Fan push (UI -> ESP32) ---------- */
+let lastPush = 0;
+const pushStats = { ok: 0, fail: 0 };
+window.__fanStats = pushStats;
+
+function pushFansToESP(f4) {
+  if (!Array.isArray(f4) || f4.length !== 4) return;
+  if (Date.now() - lastPush < 500) return;   // max 2 pushes/sec
+  lastPush = Date.now();
+  const body = f4.map(v => Math.max(0, Math.min(255, Math.round(v)))).join(',');
+  fetch(fansUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body,
+    cache: 'no-store'
+  })
+    .then(res => {
+      if (!res.ok) throw new Error('status ' + res.status);
+      pushStats.ok++;
+    })
+    .catch(() => { pushStats.fail++; });
+}
+
 /* ---------- Tick loop ---------- */
 function tick() {
-  const fresh = conn === 'on' && live && Date.now() - lastFetchTime <= 15000;
-  if (fresh) return;   // real data already rendered by fetchData
-
   const sim = simulateLocal();
   renderLive(sim);
+  pushFansToESP(sim.f);
 }
 
 /* ---------- Sync ---------- */
