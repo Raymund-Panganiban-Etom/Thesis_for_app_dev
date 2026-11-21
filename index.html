@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>IoT-Enabled Edge AI Post-Harvest Storage Systems</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,33 +17,33 @@
   <p class="w3">IoT-Enabled Edge AI Post-Harvest Storage Systems</p>
   <h1 id="wGreet">Welcome!</h1>
   <p class="w4">Monitor the ethylene, temperature and humidity of your stored crops, with automatic ventilation.</p>
-  <button type="button" class="wg" id="wGo" onclick="var w=document.getElementById('welcome');w.classList.add('out');document.body.style.overflow='';setTimeout(function(){w.hidden=true;},450);">Get started</button>
+  <button class="wg" id="wGo">Get started</button>
 </div>
 
 <!-- ================= HEADER ================= -->
 <header class="top">
   <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19C5 9 11 4 20 4c0 9-5 15-15 15z"/><path d="M5 19L14 10"/></svg></div>
   <div><h1>IoT-Enabled Edge AI Post-Harvest Storage Systems</h1></div>
-  <button type="button" class="av" id="dm" aria-label="Toggle dark mode" aria-pressed="false"><svg id="dmI" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13A9 9 0 1111 3a7 7 0 0010 10z"/></svg><span id="dmT">Dark</span></button>
+  <button class="av" id="dm" aria-label="Toggle dark mode" aria-pressed="false"><svg id="dmI" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13A9 9 0 1111 3a7 7 0 0010 10z"/></svg><span id="dmT">Dark</span></button>
 </header>
 
 <main class="wrap">
-  <div class="offl" id="offl" role="status" hidden><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a15 15 0 0 1 4-2.4M22 8.8a15 15 0 0 0-11-3.7M5 12.9a10 10 0 0 1 3.5-2M19 12.9a10 10 0 0 0-4.5-2.6M8.5 16.4a5 5 0 0 1 7 0"/><path d="M12 20h.01"/><path d="M3 3l18 18"/></svg><div><b>MQTT Broker Offline</b><p>Disconnected from ESP32-S3 MQTT broker (ws://192.168.4.1:9001).</p></div></div>
+  <div class="offl" id="offl" role="status" hidden><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a15 15 0 0 1 4-2.4M22 8.8a15 15 0 0 0-11-3.7M5 12.9a10 10 0 0 1 3.5-2M19 12.9a10 10 0 0 0-4.5-2.6M8.5 16.4a5 5 0 0 1 7 0"/><path d="M12 20h.01"/><path d="M3 3l18 18"/></svg><div><b>Offline Mode</b><p>ESP32-S3 AP unreachable. Reconnect to PostHarvest-Storage-AI Wi-Fi.</p></div></div>
 
   <!-- ================= SYSTEM STATUS ================= -->
   <section class="stat" aria-label="System status">
-    <div class="a st-off" id="devA"><span class="dot"><i></i></span><div><b>ESP32-S3 MQTT</b><span class="s" id="devS">Not connected</span></div><em class="cp" id="devB">Connect</em></div>
+    <div class="a st-off" id="devA"><span class="dot"><i></i></span><div><b>ESP32-S3 AP</b><span class="s" id="devS">Not connected</span></div><em class="cp" id="devB">Connect</em></div>
   </section>
 
   <!-- ================= VIEW 1 : CROP SELECTION & ZONES ================= -->
   <div id="first">
     <section class="card" aria-label="Storage profile">
       <div class="head"><div><p class="cap">Storage profile</p><h2>Crop-specific care, at a glance</h2></div>
-        <button type="button" class="chk" id="ok" aria-label="Confirm crop and show live readings">Confirm</button></div>
+        <button class="chk" id="ok" aria-label="Confirm crop and show live readings">Confirm</button></div>
       <p class="d">Select a crop to view its photo and active storage targets.</p>
       <div class="hero" id="hero">
-        <button type="button" class="nv" style="left:20px" id="prev" aria-label="Previous crop"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <button type="button" class="nv" style="right:20px" id="next" aria-label="Next crop"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></button>
+        <button class="nv" style="left:20px" id="prev" aria-label="Previous crop"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button class="nv" style="right:20px" id="next" aria-label="Next crop"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></button>
         <h3 id="hName"></h3><p id="hDesc"></p>
         <div class="dots" id="dots"></div>
       </div>
@@ -52,11 +55,11 @@
       <div class="chips" id="chips1"></div>
       
       <div class="fan-group">
-        <p class="cap">Container 1 · Fan</p>
+        <p class="cap">Zone 1 · Fan</p>
         <div class="fan-grid single">
           <div class="fan-item">
             <div class="fan-info">
-              <span>Container 1 Fan · Banana</span>
+              <span>Zone 1 Fan · Banana</span>
               <span class="fan-speed" data-fan-mode="c1">--</span>
             </div>
             <span class="fan-status" data-fan-level="c1">--</span>
@@ -71,11 +74,11 @@
       <div class="chips" id="chips2"></div>
 
       <div class="fan-group">
-        <p class="cap">Container 2 · Fan</p>
+        <p class="cap">Zone 2 · Fan</p>
         <div class="fan-grid single">
           <div class="fan-item">
             <div class="fan-info">
-              <span>Container 2 Fan · 4 Crops</span>
+              <span>Zone 2 Fan · 4 Crops</span>
               <span class="fan-speed" data-fan-mode="c2">--</span>
             </div>
             <span class="fan-status" data-fan-level="c2">--</span>
@@ -87,7 +90,7 @@
 
   <!-- ================= VIEW 2 : LIVE READINGS ================= -->
   <div id="second" hidden>
-    <button type="button" class="back" id="back" aria-label="Back to crop selection">Back</button>
+    <button class="back" id="back" aria-label="Back to crop selection">Back</button>
 
     <div class="cols">
       <!-- ----- left column ----- -->
@@ -97,8 +100,8 @@
           <p class="d">Targets: <span id="tgt"></span></p>
           <div class="rd"><strong id="gV">0</strong><span>ppm</span></div>
           
-          <svg class="ch" viewBox="0 0 300 160" role="img" aria-label="Ethylene level in ppm over the last 60 seconds">
-            <g>
+          <svg class="ch" id="chSvg" viewBox="0 0 300 160" role="img" aria-label="Ethylene level in ppm over the last 60 seconds">
+            <g id="chGrid" >
               <line class="gl" x1="34" x2="292" y1="138" y2="138"/>
               <line class="gl" x1="34" x2="292" y1="106" y2="106"/>
               <line class="gl" x1="34" x2="292" y1="74" y2="74"/>
@@ -128,7 +131,7 @@
 
           <!-- DYNAMIC CONTAINER FAN UNDER GAUGES -->
           <div class="fan-group" id="liveFans" style="margin-top: 24px; padding-top: 16px; border-top: 1.5px solid var(--line);">
-            <p class="cap" id="liveFanCap">Container 1 · Fan</p>
+            <p class="cap" id="liveFanCap">Zone 1 · Fan</p>
             <div class="fan-grid single" id="liveFanGrid"></div>
           </div>
 
@@ -136,19 +139,19 @@
 
         <div class="modes" role="group" aria-label="Control mode">
           <div class="m auto" id="aB"><span class="ah"><i class="ic"><svg viewBox="0 0 24 24"><path d="M5 19C5 9 11 4 20 4c0 9-5 15-15 15z"/><path d="M5 19L14 10"/></svg></i><em class="np" id="aP">Normal</em></span><small class="k">Local inference state</small><span id="aT">Normal microclimate maintained</span><small class="ad" id="aD">All environmental inputs remain within the storage profile.</small><span class="mc"><small>Model confidence</small><small id="aC">98.2%</small></span><span class="bar"><i id="aF" style="width:98.2%"></i></span></div>
-          <div class="stat" style="margin:0;background:#123022;border-color:#123022"><div class="b" style="grid-template-columns:1fr"><button type="button" class="sy" id="syncB" aria-label="Sync now" style="border-left:0"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M4 12a8 8 0 0114-5M20 12a8 8 0 01-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg><section><b>Last sync</b><br><span id="sync">--:--:-- PST</span><br><span id="ago">Tap to sync now</span></section></button></div></div>
+          <div class="stat" style="margin:0;background:#123022;border-color:#123022"><div class="b" style="grid-template-columns:1fr"><button class="sy" id="syncB" aria-label="Sync now" style="border-left:0"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M4 12a8 8 0 0114-5M20 12a8 8 0 01-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg><section><b>Last sync</b><br><span id="sync">--:--:-- PST</span><br><span id="ago">Tap to sync now</span></section></button></div></div>
         </div>
       </div>
 
       <!-- ----- right column ----- -->
       <div class="col">
         <section class="card" id="evCard" aria-label="Environmental event log">
-          <div class="head"><div><p class="cap">Environmental event log</p><h2>Latest system activity</h2><p class="d">Recent triggers and automated relay actions.</p></div><button type="button" class="vb" id="vb" aria-expanded="false">View all<br>events</button></div>
+          <div class="head"><div><p class="cap">Environmental event log</p><h2>Latest system activity</h2><p class="d">Recent triggers and automated relay actions.</p></div><button class="vb" id="vb" aria-expanded="false">View all<br>events</button></div>
           <div id="log" style="margin-top:20px;border-top:1.5px solid var(--line)"></div>
         </section>
 
         <div id="histActions">
-          <div class="la" id="logAct"><button class="dl" id="dlH" type="button">Download history</button><button class="del" id="delH" type="button">Delete history</button></div>
+          <div class="la" id="logAct"><button class="dl" id="dlH" type="button">Download history</button><button class="del" id="delH" type="button">Deleted history</button></div>
           <div class="pn" id="delBox" hidden role="alertdialog" aria-labelledby="delTxt">
             <h3 id="delTxt">Delete history?</h3>
             <button class="act del" id="delOk" type="button">Confirm</button>
