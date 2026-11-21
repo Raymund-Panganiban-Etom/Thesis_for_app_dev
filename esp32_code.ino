@@ -41,7 +41,7 @@ const int CONTAINER2_PINS[C2_GROUPS][3] = {
 #define I2C2_SCL_PIN  22
 
 // UART1 -> Local YYS-SM4-C2H4 Sensor (Assigned to: BANANA)
-#define C2H4_RX_PIN   34   // Connects to Local YYS-SM4 TX
+#define C2H4_RX_PIN   34   // Connects to Local YYS-SM4 TX (Input-only pin)
 #define C2H4_TX_PIN   -1   // Not needed for passive stream
 
 // UART2 -> Bidirectional Link with ESP32-S3
@@ -51,7 +51,7 @@ const int CONTAINER2_PINS[C2_GROUPS][3] = {
 #define S3_TX_PIN     17   // Connects to ESP32-S3 RX2 (GPIO 16)
 
 // ==========================================================
-// 3. SENSOR INSTANCES & ML CLASSIFIERS
+// 3. SENSOR INSTANCES, ML CLASSIFIERS & CSV THRESHOLDS
 // ==========================================================
 Adafruit_SHT31 sht31_Banana    = Adafruit_SHT31(&Wire);   // SHT31 #1 -> Banana
 Adafruit_SHT31 sht31_Calamansi = Adafruit_SHT31(&Wire1);  // SHT31 #2 -> Calamansi
@@ -66,89 +66,167 @@ const char* CLASS_NAMES[]     = { "NORMAL", "WARNING", "CRITICAL" };
 const char* FAN_SPEED_NAMES[] = { "Low", "Medium", "Maximum" };
 const int   NUM_CLASSES       = 3;
 
+// Instant escalation on high gas/heat/dryness; stable hold on recovery
+const int   UP_DEBOUNCE_TICKS   = 1;     // Instant trigger on spike (500 ms loop)
+const int   DOWN_DEBOUNCE_TICKS = 4;     // 2.0 s sustained drop before stepping down
+const float ETH_HYST_PPM        = 0.20f; // Anti-chatter band around Warning/Critical thresholds
+const float TEMP_HYST_C         = 0.30f;
+const float HUM_HYST_PCT        = 0.50f;
+
 enum Esp32Crop {
   CROP_BANANA = 0,
   CROP_CALAMANSI,
   ESP32_CROP_COUNT
 };
 
+// Exact CSV decision boundaries extracted from BananaClassifier.h & CalamansiClassifier.h
+// Note: Humidity follows an inverse relationship (lower RH = higher spoilage risk)
 struct CommodityProfile {
   const char* name;
-  float idealTempLow;
-  float idealTempHigh;
-  float idealHumLow;
-  float idealHumHigh;
-  float ethNormalMax;
-  float ethWarningMax;
+  float tempNormMax;   // Normal: <= tempNormMax | Warning: tempNormMax..tempWarnMax | Critical: > tempWarnMax
+  float tempWarnMax;
+  float humNormMin;    // Normal: >  humNormMin  | Warning: humWarnMin..humNormMin   | Critical: <= humWarnMin
+  float humWarnMin;
+  float ethNormMax;    // Normal: <= ethNormMax  | Warning: ethNormMax..ethWarnMax   | Critical: > ethWarnMax
+  float ethWarnMax;
   bool  useML;
 };
 
 static const CommodityProfile COMMODITY_PROFILES[ESP32_CROP_COUNT] = {
-  // name         tLow   tHigh  hLow   hHigh  ethNorm ethWarn useML
-  { "Banana",    13.0f, 30.0f, 62.0f, 95.0f,  1.0f,   7.85f,  true },
-  { "Calamansi",  8.0f, 20.0f, 70.0f, 95.0f,  0.3f,   1.5f,   true },
+  // name         tNorm   tWarn   hNorm   hWarn   eNorm   eWarn   useML
+  { "Banana",    31.01f, 36.01f, 71.03f, 63.50f, 3.85f,  7.85f,  true },
+  { "Calamansi", 31.01f, 36.01f, 71.05f, 63.50f, 2.04f,  4.75f,  true }
 };
 
-// Per-crop debounce state (3 consecutive matches to confirm; defaults to 0 = NORMAL)
 struct CropDebounceState {
-  int consecutiveCount = 0;
-  int lastRawState     = -1;
-  int confirmedState   = 0;
+  int upCount        = 0;
+  int downCount      = 0;
+  int confirmedState = 0;
+  int lastTState     = 0;
+  int lastHState     = 0;
+  int lastEState     = 0;
 };
 
 CropDebounceState debounceStates[ESP32_CROP_COUNT];
 
-inline int classifyByRules(Esp32Crop c, float eth) {
-  const CommodityProfile& p = COMMODITY_PROFILES[c];
-  if (eth <= p.ethNormalMax)  return 0;
-  if (eth <= p.ethWarningMax) return 1;
-  return 2;
+enum EvalStatus {
+  EVAL_OK = 0,
+  EVAL_GAS_ONLY_SHT_NA,
+  EVAL_FAILSAFE_ALL,
+  EVAL_FAILSAFE_ETH,
+  EVAL_OUT_OF_RANGE
+};
+
+struct CropEvalResult {
+  EvalStatus status            = EVAL_OK;
+  int        confirmed         = 0;
+  int        rawPrediction     = 0;
+  bool       overrideTriggered = false;
+  bool       stateChanged      = false;
+};
+
+inline int evalUpperWithHyst(float val, float normMax, float warnMax, float hyst, int prevState) {
+  if (val > warnMax) return 2;
+  if (prevState == 2 && val > (warnMax - hyst)) return 2;
+  if (val > normMax) return 1;
+  if (prevState >= 1 && val > (normMax - hyst)) return 1;
+  return 0;
 }
 
-inline const char* storageAdvice(Esp32Crop c, float temp, float hum) {
+inline int evalLowerWithHyst(float val, float normMin, float warnMin, float hyst, int prevState) {
+  if (val <= warnMin) return 2;
+  if (prevState == 2 && val <= (warnMin + hyst)) return 2;
+  if (val <= normMin) return 1;
+  if (prevState >= 1 && val <= (normMin + hyst)) return 1;
+  return 0;
+}
+
+inline void applyAsymmetricDebounce(CropDebounceState& db, int targetState, bool& changedOut) {
+  int prevConfirmed = db.confirmedState;
+
+  if (targetState > db.confirmedState) {
+    db.downCount = 0;
+    db.upCount++;
+    if (db.upCount >= UP_DEBOUNCE_TICKS) {
+      db.confirmedState = targetState;
+      db.upCount        = 0;
+    }
+  } else if (targetState < db.confirmedState) {
+    db.upCount = 0;
+    db.downCount++;
+    if (db.downCount >= DOWN_DEBOUNCE_TICKS) {
+      db.confirmedState = targetState;
+      db.downCount      = 0;
+    }
+  } else {
+    db.upCount   = 0;
+    db.downCount = 0;
+  }
+
+  changedOut = (db.confirmedState != prevConfirmed);
+}
+
+void formatStorageAdvice(Esp32Crop c, float temp, float hum, float eth,
+                         char* outBuf, size_t bufLen) {
   const CommodityProfile& p = COMMODITY_PROFILES[c];
-  if (temp > p.idealTempHigh + 5.0f)  return " [TEMP HIGH]";
-  if (temp < p.idealTempLow  - 5.0f)  return " [TEMP LOW]";
-  if (hum  > p.idealHumHigh  + 10.0f) return " [HUM HIGH]";
-  if (hum  < p.idealHumLow   - 10.0f) return " [HUM LOW]";
-  return "";
+  outBuf[0] = '\0';
+
+  if (!isnan(temp)) {
+    if (temp > p.tempWarnMax)       strncat(outBuf, " [TEMP CRIT]", bufLen - strlen(outBuf) - 1);
+    else if (temp > p.tempNormMax)  strncat(outBuf, " [TEMP WARN]", bufLen - strlen(outBuf) - 1);
+  }
+  if (!isnan(hum)) {
+    if (hum <= p.humWarnMin)        strncat(outBuf, " [HUM CRIT]",  bufLen - strlen(outBuf) - 1);
+    else if (hum <= p.humNormMin)   strncat(outBuf, " [HUM WARN]",  bufLen - strlen(outBuf) - 1);
+  }
+  if (eth > p.ethWarnMax)           strncat(outBuf, " [C2H4 CRIT]", bufLen - strlen(outBuf) - 1);
+  else if (eth > p.ethNormMax)      strncat(outBuf, " [C2H4 WARN]", bufLen - strlen(outBuf) - 1);
+}
+
+bool readSht31WithRetry(Adafruit_SHT31& sensor, bool& readyFlag, float& outTemp, float& outHum) {
+  if (!readyFlag) readyFlag = sensor.begin(0x44);
+  if (!readyFlag) {
+    outTemp = NAN;
+    outHum  = NAN;
+    return false;
+  }
+
+  for (int attempt = 0; attempt < 2; attempt++) {
+    outTemp = sensor.readTemperature();
+    outHum  = sensor.readHumidity();
+    if (!isnan(outTemp) && !isnan(outHum)) return true;
+    delay(5);
+  }
+
+  readyFlag = false;
+  outTemp   = NAN;
+  outHum    = NAN;
+  return false;
 }
 
 // ==========================================================
-// 4. LOCAL ETHYLENE BUFFER & WATCHDOG (BANANA SM4-C2H4)
+// 4. LOCAL RAW ETHYLENE STATE & WINDOW PEAK CAPTURE (BANANA)
 // ==========================================================
-const int ETH_AVG_N = 5;
-float ethHistory[ETH_AVG_N] = {0};
-int   ethIndex = 0;
-int   ethCount = 0;
-float ethLast  = 0.0f;
+const unsigned long ETH_TIMEOUT_MS    = 5000;
+const unsigned long CONTROL_PERIOD_MS = 500;   // Fast 500 ms ML + PWM + UART2 sync
+const unsigned long PRINT_PERIOD_MS   = 1000;  // Periodic Serial Monitor log (plus instant on state change)
 
-const unsigned long ETH_TIMEOUT_MS  = 5000;
-const unsigned long PRINT_PERIOD_MS = 1000;
-unsigned long lastEthMs       = 0;
-unsigned long lastByteMs      = 0;
-unsigned long lastPrintMs     = 0;
-bool          ethEverReceived = false;
-
-void pushEthylene(float v) {
-  ethHistory[ethIndex] = v;
-  ethIndex = (ethIndex + 1) % ETH_AVG_N;
-  if (ethCount < ETH_AVG_N) ethCount++;
-}
-
-float getSmoothedEthylene() {
-  if (ethCount == 0) return ethLast;
-  float s = 0;
-  for (int i = 0; i < ethCount; i++) s += ethHistory[i];
-  return s / ethCount;
-}
+float         bananaEthLatest      = 0.0f;
+float         bananaEthWindowPeak  = 0.0f;
+bool          bananaWindowHasFrame = false;
+unsigned long lastEthMs            = 0;
+unsigned long lastByteMs           = 0;
+unsigned long lastControlMs        = 0;
+unsigned long lastPrintMs          = 0;
+bool          ethEverReceived      = false;
+uint8_t       bananaLastFrame[9]   = { 0 };
+bool          bananaHasFrame       = false;
 
 void resetEthylene() {
-  for (int i = 0; i < ETH_AVG_N; i++) ethHistory[i] = 0.0f;
-  ethIndex = 0;
-  ethCount = 0;
-  ethLast  = 0.0f;
-  ethEverReceived = false;
+  bananaEthLatest      = 0.0f;
+  bananaEthWindowPeak  = 0.0f;
+  bananaWindowHasFrame = false;
+  ethEverReceived      = false;
 }
 
 bool ethyleneIsFresh() {
@@ -156,14 +234,27 @@ bool ethyleneIsFresh() {
 }
 
 void acceptEthylene(float ppm) {
-  ethLast = ppm;
-  pushEthylene(ppm);
-  lastEthMs = millis();
+  bananaEthLatest = ppm;
+  if (!bananaWindowHasFrame || ppm > bananaEthWindowPeak) {
+    bananaEthWindowPeak  = ppm;
+    bananaWindowHasFrame = true;
+  }
+  lastEthMs       = millis();
   ethEverReceived = true;
 }
 
+float consumeBananaRawPpm() {
+  if (!ethyleneIsFresh()) return 0.0f;
+  if (bananaWindowHasFrame) {
+    float peak = bananaEthWindowPeak;
+    bananaWindowHasFrame = false;
+    return peak;
+  }
+  return bananaEthLatest;
+}
+
 // ==========================================================
-// 5. REMOTE DATA FROM ESP32-S3 (C2H4 + CORN/POMELO/BEANS STATES)
+// 5. REMOTE DATA FROM ESP32-S3 (NON-BLOCKING UART2 PARSER)
 // ==========================================================
 float         remoteS3EthPpm     = 0.0f;
 bool          remoteS3EthValid   = false;
@@ -172,30 +263,47 @@ int           remotePomeloState  = 0;
 int           remoteBeansState   = 0;
 unsigned long lastRemoteS3Ms     = 0;
 
+char s3RxBuf[96];
+size_t s3RxLen = 0;
+
+void parseRemoteS3Line(const char* line) {
+  // Expected packet from S3: S3_DATA,<ethValid>,<ethPpm>,<cornState>,<pomeloState>,<beansState>
+  if (strncmp(line, "S3_DATA,", 8) == 0) {
+    int validFlag = 0, cState = 0, pState = 0, bState = 0;
+    float ppm = 0.0f;
+    if (sscanf(line, "S3_DATA,%d,%f,%d,%d,%d",
+               &validFlag, &ppm, &cState, &pState, &bState) == 5) {
+      remoteS3EthValid  = (validFlag == 1);
+      remoteS3EthPpm    = (ppm < 0.0f) ? 0.0f : ppm;
+      remoteCornState   = constrain(cState, 0, 2);
+      remotePomeloState = constrain(pState, 0, 2);
+      remoteBeansState  = constrain(bState, 0, 2);
+      lastRemoteS3Ms    = millis();
+    }
+  }
+}
+
 void pollRemoteS3UART() {
   while (Serial2.available()) {
-    String line = Serial2.readStringUntil('\n');
-    line.trim();
+    char ch = (char)Serial2.read();
+    if (ch == '\r') continue;
 
-    // Expected packet from S3: S3_DATA,<ethValid>,<ethPpm>,<cornState>,<pomeloState>,<beansState>
-    if (line.startsWith("S3_DATA,")) {
-      int validFlag = 0, cState = 0, pState = 0, bState = 0;
-      float ppm = 0.0f;
-      if (sscanf(line.c_str(), "S3_DATA,%d,%f,%d,%d,%d",
-                 &validFlag, &ppm, &cState, &pState, &bState) == 5) {
-        remoteS3EthValid  = (validFlag == 1);
-        remoteS3EthPpm    = ppm;
-        remoteCornState   = constrain(cState, 0, 2);
-        remotePomeloState = constrain(pState, 0, 2);
-        remoteBeansState  = constrain(bState, 0, 2);
-        lastRemoteS3Ms    = millis();
+    if (ch == '\n') {
+      if (s3RxLen > 0) {
+        s3RxBuf[s3RxLen] = '\0';
+        parseRemoteS3Line(s3RxBuf);
+        s3RxLen = 0;
       }
+    } else if (s3RxLen < sizeof(s3RxBuf) - 1) {
+      s3RxBuf[s3RxLen++] = ch;
+    } else {
+      s3RxLen = 0;
     }
   }
 }
 
 // ==========================================================
-// 6. YYS SM4-C2H4 BINARY FRAME PARSER (CODE 4 ALGORITHM)
+// 6. YYS SM4-C2H4 BINARY FRAME PARSER (PURE RAW DATA, UNCAPPED)
 // ==========================================================
 void pollBananaEthyleneUART() {
   while (Serial1.available() >= 9) {
@@ -213,6 +321,9 @@ void pollBananaEthyleneUART() {
     uint8_t expected = (uint8_t)((~sum) + 1);
     if (frame[8] != expected) continue;
     if (frame[1] != 0x86)     continue;
+
+    memcpy(bananaLastFrame, frame, 9);
+    bananaHasFrame = true;
 
     uint16_t raw = ((uint16_t)frame[2] << 8) | frame[3];
     float ppm = raw * 0.1f;
@@ -242,97 +353,159 @@ void setContainer2Fan(int state) {
 }
 
 // ==========================================================
-// 8. CLASSIFY & REPORT SINGLE CROP
+// 8. RESPONSIVE HYBRID CLASSIFY (CSV ML + SINGLE-SENSOR SAFETY)
 // ==========================================================
-int evaluateAndPrintCrop(Esp32Crop crop, float temp, float hum,
-                         bool ethValid, bool bytesComing,
-                         unsigned long staleMs, float eth,
-                         const char* containerLabel, int activeContainerFanState) {
+CropEvalResult evaluateCrop(Esp32Crop crop, float temp, float hum,
+                            bool ethValid, float eth) {
   const CommodityProfile& profile = COMMODITY_PROFILES[crop];
   CropDebounceState& db = debounceStates[crop];
+  CropEvalResult res;
 
-  // Temp/Humidity unavailable -> Fail-safe to NORMAL (0)
+  // Both SHT31 and C2H4 unavailable -> Fail-safe to NORMAL (0)
+  if ((isnan(temp) || isnan(hum)) && !ethValid) {
+    bool changed = (db.confirmedState != 0);
+    db.upCount        = 0;
+    db.downCount      = 0;
+    db.confirmedState = 0;
+    db.lastTState     = 0;
+    db.lastHState     = 0;
+    db.lastEState     = 0;
+    res.status        = EVAL_FAILSAFE_ALL;
+    res.confirmed     = 0;
+    res.stateChanged  = changed;
+    return res;
+  }
+
+  // SHT31 unavailable, but C2H4 IS valid -> Gas-only evaluation (still detects WARNING & CRITICAL)
   if (isnan(temp) || isnan(hum)) {
-    db.consecutiveCount = 0;
-    db.lastRawState     = -1;
-    db.confirmedState   = 0;
+    db.lastTState = 0;
+    db.lastHState = 0;
+    int eState = evalUpperWithHyst(eth, profile.ethNormMax, profile.ethWarnMax, ETH_HYST_PPM, db.lastEState);
+    db.lastEState = eState;
 
-    if (ethValid)
-      Serial.printf("[%-9s] SHT31: N/A | C2H4=%.2f ppm -> NORMAL (Fail-Safe) | %s: %s\n",
-                    profile.name, eth, containerLabel, FAN_SPEED_NAMES[activeContainerFanState]);
-    else
-      Serial.printf("[%-9s] SHT31: N/A | C2H4: DISCONNECTED -> NORMAL (Fail-Safe) | %s: %s\n",
-                    profile.name, containerLabel, FAN_SPEED_NAMES[activeContainerFanState]);
-    return db.confirmedState;
+    applyAsymmetricDebounce(db, eState, res.stateChanged);
+    res.status        = EVAL_GAS_ONLY_SHT_NA;
+    res.rawPrediction = eState;
+    res.confirmed     = db.confirmedState;
+    return res;
   }
 
   // Ethylene invalid -> Fail-safe to NORMAL (0)
   if (!ethValid) {
-    db.consecutiveCount = 0;
-    db.lastRawState     = -1;
-    db.confirmedState   = 0;
+    bool changed = (db.confirmedState != 0);
+    db.upCount        = 0;
+    db.downCount      = 0;
+    db.confirmedState = 0;
+    db.lastEState     = 0;
+    res.status        = EVAL_FAILSAFE_ETH;
+    res.confirmed     = 0;
+    res.stateChanged  = changed;
+    return res;
+  }
 
+  // Evaluate exact CSV per-sensor rules with hysteresis on pure raw values
+  int tState = evalUpperWithHyst(temp, profile.tempNormMax, profile.tempWarnMax, TEMP_HYST_C,  db.lastTState);
+  int hState = evalLowerWithHyst(hum,  profile.humNormMin,  profile.humWarnMin,  HUM_HYST_PCT, db.lastHState);
+  int eState = evalUpperWithHyst(eth,  profile.ethNormMax,  profile.ethWarnMax,  ETH_HYST_PPM, db.lastEState);
+  db.lastTState = tState;
+  db.lastHState = hState;
+  db.lastEState = eState;
+  int ruleState = max(tState, max(hState, eState));
+
+  int rawPrediction = ruleState;
+  if (profile.useML) {
+    float features[3] = { temp, hum, eth };
+    int mlPrediction = (crop == CROP_BANANA)
+                         ? bananaClassifier.predict(features)
+                         : calamansiClassifier.predict(features);
+
+    if (mlPrediction < 0 || mlPrediction >= NUM_CLASSES) {
+      res.status        = EVAL_OUT_OF_RANGE;
+      res.rawPrediction = mlPrediction;
+      res.confirmed     = db.confirmedState;
+      return res;
+    }
+
+    if (ruleState > mlPrediction) {
+      rawPrediction         = ruleState;
+      res.overrideTriggered = true;
+    } else {
+      rawPrediction         = mlPrediction;
+      res.overrideTriggered = false;
+    }
+  }
+
+  applyAsymmetricDebounce(db, rawPrediction, res.stateChanged);
+  res.status        = EVAL_OK;
+  res.rawPrediction = rawPrediction;
+  res.confirmed     = db.confirmedState;
+  return res;
+}
+
+void printCropReport(Esp32Crop crop, const CropEvalResult& res,
+                     float temp, float hum, bool ethValid,
+                     bool bytesComing, unsigned long staleMs, float eth,
+                     const char* containerLabel, int activeContainerFanState) {
+  const CommodityProfile& profile = COMMODITY_PROFILES[crop];
+
+  if (res.status == EVAL_FAILSAFE_ALL) {
+    Serial.printf("[%-9s] SHT31: N/A | C2H4: DISCONNECTED -> NORMAL (Fail-Safe) | %s: %s\n",
+                  profile.name, containerLabel, FAN_SPEED_NAMES[activeContainerFanState]);
+    return;
+  }
+
+  if (res.status == EVAL_GAS_ONLY_SHT_NA) {
+    char advice[48];
+    formatStorageAdvice(crop, NAN, NAN, eth, advice, sizeof(advice));
+    Serial.printf("[%-9s] SHT31: N/A | C2H4=%.2f ppm -> %-8s (GAS-ONLY) | Crop Fan: %-7s | %s: %-7s%s\n",
+                  profile.name, eth,
+                  CLASS_NAMES[res.confirmed],
+                  FAN_SPEED_NAMES[res.confirmed],
+                  containerLabel, FAN_SPEED_NAMES[activeContainerFanState],
+                  advice);
+    return;
+  }
+
+  if (res.status == EVAL_FAILSAFE_ETH) {
     if (bytesComing)
       Serial.printf("[%-9s] T=%.1f C | H=%.1f %% | C2H4: INVALID FRAME (%.1f s) -> NORMAL (Fail-Safe) | %s: %s\n",
                     profile.name, temp, hum, staleMs / 1000.0,
                     containerLabel, FAN_SPEED_NAMES[activeContainerFanState]);
     else
-      Serial.printf("[%-9s] T=%.1f C | H=%.1f %% | C2H4: DISCONNECTED (%.1f s) -> NORMAL (Fail-Safe) | %s: %s\n",
+      Serial.printf("[%-9s] T=%.1f C | H=%.1f %% | C2H4: WAITING/DISCONNECTED (%.1f s) -> NORMAL (Fail-Safe) | %s: %s\n",
                     profile.name, temp, hum, staleMs / 1000.0,
                     containerLabel, FAN_SPEED_NAMES[activeContainerFanState]);
-    return db.confirmedState;
+    return;
   }
 
-  // Classify using trained ML header
-  int rawPrediction;
-  if (profile.useML) {
-    float features[3] = { temp, hum, eth }; // [temp, hum, eth]
-    if (crop == CROP_BANANA) {
-      rawPrediction = bananaClassifier.predict(features);
-    } else {
-      rawPrediction = calamansiClassifier.predict(features);
-    }
-  } else {
-    rawPrediction = classifyByRules(crop, eth);
-  }
-
-  if (rawPrediction < 0 || rawPrediction >= NUM_CLASSES) {
+  if (res.status == EVAL_OUT_OF_RANGE) {
     Serial.printf("[%-9s] T=%.1f C | H=%.1f %% | C2H4=%.2f ppm -> OUT-OF-RANGE(%d) | %s: %s\n",
-                  profile.name, temp, hum, eth, rawPrediction,
+                  profile.name, temp, hum, eth, res.rawPrediction,
                   containerLabel, FAN_SPEED_NAMES[activeContainerFanState]);
-    return db.confirmedState;
+    return;
   }
 
-  // Debounce (3 consecutive matches to confirm)
-  if (rawPrediction == db.lastRawState) {
-    if (db.consecutiveCount < 100) db.consecutiveCount++;
-    if (db.consecutiveCount >= 3) db.confirmedState = rawPrediction;
-  } else {
-    db.consecutiveCount = 1;
-    db.lastRawState     = rawPrediction;
-  }
+  char advice[48];
+  formatStorageAdvice(crop, temp, hum, eth, advice, sizeof(advice));
+  const char* method = !profile.useML ? "RULE" : (res.overrideTriggered ? "ML+SAFE" : "ML");
 
-  const char* advice = storageAdvice(crop, temp, hum);
-  const char* method = profile.useML ? "ML" : "RULE";
-  Serial.printf("[%-9s] T=%.1f C | H=%.1f %% | C2H4=%.2f ppm -> %-8s (%s) | Crop Fan: %-7s | %s: %-7s%s\n",
+  Serial.printf("[%-9s] T=%.1f C | H=%.1f %% | C2H4=%.2f ppm -> %-8s (%-7s) | Crop Fan: %-7s | %s: %-7s%s\n",
                 profile.name, temp, hum, eth,
-                CLASS_NAMES[db.confirmedState], method,
-                FAN_SPEED_NAMES[db.confirmedState],
+                CLASS_NAMES[res.confirmed], method,
+                FAN_SPEED_NAMES[res.confirmed],
                 containerLabel, FAN_SPEED_NAMES[activeContainerFanState],
                 advice);
-
-  return db.confirmedState;
 }
 
 // ==========================================================
-// SETUP (ESP32 Core 3.0.0+)
+// SETUP (ESP32.DEV / ESP32 Arduino Core 3.0.0+)
 // ==========================================================
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n=== ESP32: Banana & Calamansi Spoilage Monitor + Container Fan PWM ===");
+  Serial.println("\n=== ESP32.DEV: Banana & Calamansi Edge AI Monitor (CSV THRESHOLDS + RAW GAS) ===");
 
-  // 1. Setup Container 1 Fan (3 pins) & Container 2 Fan (9 pins)
+  // 1. Setup Container 1 Fan (3 pins) & Container 2 Fan (9 pins) -> 12 LEDC channels total
   for (int s = 0; s < 3; s++) {
     ledcAttach(CONTAINER1_PINS[s], PWM_FREQ, PWM_RES);
   }
@@ -346,11 +519,14 @@ void setup() {
   setContainer1Fan(0);
   setContainer2Fan(0);
 
-  // 2. Setup Two Independent I2C Buses
-  //    SHT31 #1 (GPIO 14/18) -> Banana
-  //    SHT31 #2 (GPIO 21/22) -> Calamansi
+  // 2. Setup Two Independent I2C Buses (100 kHz + 50 ms timeout)
   Wire.begin(I2C1_SDA_PIN, I2C1_SCL_PIN);
+  Wire.setClock(100000);
+  Wire.setTimeOut(50);
+
   Wire1.begin(I2C2_SDA_PIN, I2C2_SCL_PIN);
+  Wire1.setClock(100000);
+  Wire1.setTimeOut(50);
 
   shtBananaReady    = sht31_Banana.begin(0x44);
   shtCalamansiReady = sht31_Calamansi.begin(0x44);
@@ -359,14 +535,15 @@ void setup() {
                 shtCalamansiReady ? "OK" : "NOT FOUND");
 
   // 3. Setup UART1 (Banana YYS-SM4-C2H4) & UART2 (Link with ESP32-S3)
+  Serial1.setRxBufferSize(256);
   Serial1.begin(9600, SERIAL_8N1, C2H4_RX_PIN, C2H4_TX_PIN);
   Serial1.setTimeout(50);
+  Serial2.setRxBufferSize(256);
   Serial2.begin(115200, SERIAL_8N1, S3_RX_PIN, S3_TX_PIN);
-  Serial2.setTimeout(50);
 }
 
 // ==========================================================
-// LOOP
+// LOOP (500 ms Fast Control & UART2 Sync)
 // ==========================================================
 void loop() {
   unsigned long now = millis();
@@ -374,36 +551,25 @@ void loop() {
   pollBananaEthyleneUART();
   pollRemoteS3UART();
 
-  if (now - lastPrintMs < PRINT_PERIOD_MS) return;
-  lastPrintMs = now;
+  if (now - lastControlMs < CONTROL_PERIOD_MS) return;
+  lastControlMs = now;
 
-  // --- Read SHT31 #1 (Banana) ---
-  if (!shtBananaReady) shtBananaReady = sht31_Banana.begin(0x44);
+  // --- Read SHT31 #1 (Banana) & SHT31 #2 (Calamansi) with retry ---
   float tBanana = NAN, hBanana = NAN;
-  if (shtBananaReady) {
-    tBanana = sht31_Banana.readTemperature();
-    hBanana = sht31_Banana.readHumidity();
-    if (isnan(tBanana) || isnan(hBanana)) shtBananaReady = false;
-  }
+  readSht31WithRetry(sht31_Banana, shtBananaReady, tBanana, hBanana);
 
-  // --- Read SHT31 #2 (Calamansi) ---
-  if (!shtCalamansiReady) shtCalamansiReady = sht31_Calamansi.begin(0x44);
   float tCalamansi = NAN, hCalamansi = NAN;
-  if (shtCalamansiReady) {
-    tCalamansi = sht31_Calamansi.readTemperature();
-    hCalamansi = sht31_Calamansi.readHumidity();
-    if (isnan(tCalamansi) || isnan(hCalamansi)) shtCalamansiReady = false;
-  }
+  readSht31WithRetry(sht31_Calamansi, shtCalamansiReady, tCalamansi, hCalamansi);
 
-  // --- Banana SM4-C2H4 Freshness (Local UART1) ---
+  // --- Banana SM4-C2H4 Freshness (Window Peak Raw UART1) ---
   bool bananaEthValid = ethyleneIsFresh();
   if (!bananaEthValid && ethEverReceived) resetEthylene();
-  float bananaEth = bananaEthValid ? getSmoothedEthylene() : 0.0f;
+  float bananaEth = bananaEthValid ? consumeBananaRawPpm() : 0.0f;
   bool bananaBytesComing = (now - lastByteMs < ETH_TIMEOUT_MS);
   unsigned long bananaStaleMs = bananaBytesComing ? (now - lastEthMs) : (now - lastByteMs);
 
   // --- Calamansi SM4-C2H4 & S3 Crops Freshness (Received via UART2 from ESP32-S3) ---
-  bool s3LinkFresh = (now - lastRemoteS3Ms < ETH_TIMEOUT_MS);
+  bool s3LinkFresh = (lastRemoteS3Ms != 0) && (now - lastRemoteS3Ms < ETH_TIMEOUT_MS);
   if (!s3LinkFresh) {
     remoteS3EthValid  = false;
     remoteCornState   = 0; // Fail-safe to Normal
@@ -412,39 +578,25 @@ void loop() {
   }
   bool calamansiEthValid = remoteS3EthValid && s3LinkFresh;
   float calamansiEth     = calamansiEthValid ? remoteS3EthPpm : 0.0f;
-  unsigned long calamansiStaleMs = now - lastRemoteS3Ms;
+  unsigned long calamansiStaleMs = (lastRemoteS3Ms == 0) ? now : (now - lastRemoteS3Ms);
 
-  // --- Determine Highest Severity for Container 2 Fan (4 Crops) ---
-  int calamansiCurrentState = debounceStates[CROP_CALAMANSI].confirmedState;
-  int container2FanState = max(calamansiCurrentState,
+  // --- Step 1: Run Responsive Hybrid CSV ML + Safety Classification ---
+  CropEvalResult bananaRes    = evaluateCrop(CROP_BANANA,    tBanana,    hBanana,    bananaEthValid,    bananaEth);
+  CropEvalResult calamansiRes = evaluateCrop(CROP_CALAMANSI, tCalamansi, hCalamansi, calamansiEthValid, calamansiEth);
+
+  int bananaState    = bananaRes.confirmed;
+  int calamansiState = calamansiRes.confirmed;
+
+  // --- Step 2: Compute Active Container Fan States & Apply PWM Immediately ---
+  int container1FanState = bananaState;
+  int container2FanState = max(calamansiState,
                            max(remoteCornState,
                            max(remotePomeloState, remoteBeansState)));
 
-  Serial.println("====================================================================================");
-  int bananaState = evaluateAndPrintCrop(
-      CROP_BANANA, tBanana, hBanana,
-      bananaEthValid, bananaBytesComing, bananaStaleMs, bananaEth,
-      "Container 1 Fan", debounceStates[CROP_BANANA].confirmedState);
-
-  int calamansiState = evaluateAndPrintCrop(
-      CROP_CALAMANSI, tCalamansi, hCalamansi,
-      calamansiEthValid, false, calamansiStaleMs, calamansiEth,
-      "Container 2 Fan", container2FanState);
-
-  // Recompute Container 2 Fan state with latest Calamansi state & apply PWM outputs
-  container2FanState = max(calamansiState,
-                       max(remoteCornState,
-                       max(remotePomeloState, remoteBeansState)));
-
-  setContainer1Fan(bananaState);
+  setContainer1Fan(container1FanState);
   setContainer2Fan(container2FanState);
 
-  Serial.printf(">> ACTIVE FANS | Container 1 Fan (Banana): %-7s (GPIO %d=255) | Container 2 Fan (4 Crops): %-7s\n",
-                FAN_SPEED_NAMES[bananaState], CONTAINER1_PINS[bananaState],
-                FAN_SPEED_NAMES[container2FanState]);
-
-  // Send full Banana & Calamansi readings + Fan states to ESP32-S3 over UART2
-  // Use -999.0 for NaN SHT31 readings and -1.0 for invalid/disconnected C2H4
+  // --- Step 3: Send Full Telemetry & Fan States to ESP32-S3 over UART2 (Every 500 ms) ---
   float txTBan = isnan(tBanana)    ? -999.0f : tBanana;
   float txHBan = isnan(hBanana)    ? -999.0f : hBanana;
   float txEBan = bananaEthValid    ? bananaEth : -1.0f;
@@ -456,7 +608,43 @@ void loop() {
   char txPacket[128];
   snprintf(txPacket, sizeof(txPacket),
            "ESP32_DATA,%.2f,%.2f,%.2f,%d,%d,%.2f,%.2f,%.2f,%d,%d",
-           txTBan, txHBan, txEBan, bananaState, bananaState,
+           txTBan, txHBan, txEBan, bananaState, container1FanState,
            txTCal, txHCal, txECal, calamansiState, container2FanState);
   Serial2.println(txPacket);
+
+  // --- Step 4: Print Status Report (Every 1000 ms OR immediately on any state transition) ---
+  bool anyChanged = bananaRes.stateChanged || calamansiRes.stateChanged;
+  if (anyChanged || (now - lastPrintMs >= PRINT_PERIOD_MS)) {
+    lastPrintMs = now;
+
+    Serial.println("====================================================================================");
+    printCropReport(CROP_BANANA, bananaRes, tBanana, hBanana,
+                    bananaEthValid, bananaBytesComing, bananaStaleMs, bananaEth,
+                    "Container 1 Fan", container1FanState);
+
+    printCropReport(CROP_CALAMANSI, calamansiRes, tCalamansi, hCalamansi,
+                    calamansiEthValid, false, calamansiStaleMs, calamansiEth,
+                    "Container 2 Fan", container2FanState);
+
+    if (bananaHasFrame) {
+      Serial.printf(">> BANANA C2H4    | Raw=%.2f ppm | Frame=%02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+                    bananaEth,
+                    bananaLastFrame[0], bananaLastFrame[1], bananaLastFrame[2], bananaLastFrame[3],
+                    bananaLastFrame[4], bananaLastFrame[5], bananaLastFrame[6], bananaLastFrame[7],
+                    bananaLastFrame[8]);
+    } else {
+      Serial.printf(">> BANANA C2H4    | Raw=%.2f ppm | Frame=NONE\n", bananaEth);
+    }
+
+    Serial.printf(">> CALAMANSI C2H4 | From S3 UART2: %s | Raw=%.2f ppm (S3 States: Corn=%s, Pomelo=%s, Beans=%s)\n",
+                  calamansiEthValid ? "OK" : "WAITING/DISCONNECTED",
+                  calamansiEth,
+                  CLASS_NAMES[remoteCornState],
+                  CLASS_NAMES[remotePomeloState],
+                  CLASS_NAMES[remoteBeansState]);
+
+    Serial.printf(">> ACTIVE FANS    | Container 1 Fan (Banana): %-7s (GPIO %d=255) | Container 2 Fan (4 Crops): %-7s\n",
+                  FAN_SPEED_NAMES[container1FanState], CONTAINER1_PINS[container1FanState],
+                  FAN_SPEED_NAMES[container2FanState]);
+  }
 }
